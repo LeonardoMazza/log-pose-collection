@@ -92,6 +92,48 @@ MOCK_ERROR_RATE=0.02      # 2% failures
 
 ---
 
+## Conventions: Tooling & Versions
+
+**Supported stack**
+- **Node.js:** `>=22 <23` (LTS)  
+- **Package manager:** **pnpm** `10.14.0` (canonical)  
+- **Yarn (optional, labs only):** `4.x`
+
+**Lockfile policy**
+- Commit **`pnpm-lock.yaml`**.  
+- **Do not** add `package-lock.json` or `yarn.lock`.  
+- CI fails if another lockfile appears.
+
+**Files to add**
+
+`.nvmrc`
+```
+22
+```
+
+`package.json` (excerpt)
+```json
+{
+  "packageManager": "pnpm@10.14.0",
+  "engines": { "node": ">=22 <23" }
+}
+```
+
+`.npmrc`
+```
+engine-strict=true
+strict-peer-dependencies=true
+```
+
+(Optional) Volta pin
+```json
+{
+  "volta": { "node": "22.0.0", "pnpm": "10.14.0" }
+}
+```
+
+---
+
 ## Project structure (high-level)
 
 ```
