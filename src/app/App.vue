@@ -28,4 +28,12 @@ const auth = useAuthStore()
     </nav>
   </header>
   <RouterView />
+  <footer>
+    <div class="max-w-5xl mx-auto p-3 text-sm text-gray-600">
+      &copy; 2023 Log Pose Collection - made by
+      <a href="https://github.com/leonardomazza" target="_blank" rel="noopener noreferrer"
+        ><b>Leonardo Mazza</b></a
+      >
+    </div>
+  </footer>
 </template>
