@@ -9,7 +9,8 @@ import '../styles/index.css'
 const app = createApp(App)
 
 app.use(createPinia())
-const auth = useAuthStore(); auth.load()
+const auth = useAuthStore()
+auth.load()
 app.use(router)
 
 app.mount('#app')

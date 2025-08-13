@@ -12,6 +12,8 @@ const router = createRouter({
     },
     { path: '/signin', name: 'signin', component: () => import('@/pages/SignIn.vue') },
     { path: '/signup', name: 'signup', component: () => import('@/pages/SignUp.vue') },
+  { path: '/decks', name: 'decks', component: () => import('@/pages/Decks.vue') },
+    { path: '/decks/:id', name: 'deckEditor', component: () => import('@/pages/DeckEditor.vue') },
   ],
 })
 

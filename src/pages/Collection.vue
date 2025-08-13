@@ -1,151 +1,264 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
-import Chip from '@/components/Chip.vue'
-import CardTile from '@/components/CardTile.vue'
 import { useCatalogStore } from '@/stores/catalog'
 import { useCollectionStore } from '@/stores/collection'
-import type { Rarity } from '@/domain/op-types'
+import CardTile from '@/components/CardTile.vue'
+import { isRef, type Ref } from 'vue'
 
 const catalog = useCatalogStore()
 const coll = useCollectionStore()
 
-// busca livre
 const q = ref('')
+const filtersOpen = ref(false)
 
-// filtros (vazio = todos)
+// Filtros
+const ALL_COLORS = ['Red', 'Green', 'Blue', 'Purple', 'Black', 'Yellow'] as const
+const selectedColors = ref<string[]>([])
 const selectedSets = ref<string[]>([])
-const selectedRarities = ref<Rarity[]>([])
-
-// ordem útil de raridade (ajuste se quiser)
-const ALL_RARITIES = ['L', 'SEC', 'SR', 'R', 'UC', 'C', 'P', 'ALT'] as const
+const costMin = ref<number | null>(null)
+const costMax = ref<number | null>(null)
 
 onMounted(async () => {
   await catalog.load()
   coll.init()
 })
 
-// 1) Filtra só por texto (para contagens de chips)
-const searchFiltered = computed(() => {
-  const txt = q.value.trim().toLowerCase()
-  if (!txt) return catalog.cards
-  return catalog.cards.filter((c) => {
-    const hay = `${c.name} ${c.id} ${c.setCode} ${c.number}`.toLowerCase()
-    return hay.includes(txt)
-  })
+const costBounds = computed(() => {
+  const costs = catalog.cards.map((c) => c.cost).filter((v): v is number => typeof v === 'number')
+  const min = costs.length ? Math.min(...costs) : 0
+  const max = costs.length ? Math.max(...costs) : 10
+  return { min, max }
 })
 
-// 2) Contagens para exibir nos chips (após busca, antes dos chips)
-const setCounts = computed(() => {
-  const map = new Map<string, number>()
-  for (const c of searchFiltered.value) map.set(c.setCode, (map.get(c.setCode) ?? 0) + 1)
-  return map
-})
-const rarityCounts = computed(() => {
-  const map = new Map<Rarity, number>()
-  for (const c of searchFiltered.value)
-    map.set(c.rarity as Rarity, (map.get(c.rarity as Rarity) ?? 0) + 1)
-  return map
+const activeFilterCount = computed(() => {
+  let n = 0
+  if (selectedColors.value.length) n++
+  if (selectedSets.value.length) n++
+  if (costMin.value != null || costMax.value != null) n++
+  return n
 })
 
-// 3) Aplica filtros de chips sobre o resultado da busca
-const results = computed(() => {
-  return searchFiltered.value.filter((c) => {
-    const okSet = selectedSets.value.length === 0 || selectedSets.value.includes(c.setCode)
-    const okRar =
-      selectedRarities.value.length === 0 || selectedRarities.value.includes(c.rarity as Rarity)
-    return okSet && okRar
-  })
-})
-
-// helpers
-function toggleSet(code: string) {
-  const i = selectedSets.value.indexOf(code)
-  if (i >= 0) selectedSets.value.splice(i, 1)
-  else selectedSets.value.push(code)
+function toggleIn(arr: Ref<string[]> | string[], v: string) {
+  const list = isRef(arr) ? arr.value : arr
+  const i = list.indexOf(v)
+  if (i >= 0) list.splice(i, 1)
+  else list.push(v)
 }
-function toggleRarity(r: Rarity) {
-  const i = selectedRarities.value.indexOf(r)
-  if (i >= 0) selectedRarities.value.splice(i, 1)
-  else selectedRarities.value.push(r)
-}
-function clearFilters() {
+function resetFilters() {
+  selectedColors.value = []
   selectedSets.value = []
-  selectedRarities.value = []
+  costMin.value = null
+  costMax.value = null
+}
+
+const results = computed(() => {
+  const search = q.value.trim().toLowerCase()
+  const hasCost = costMin.value != null || costMax.value != null
+
+  return catalog.cards.filter((c) => {
+    // busca
+    const matchesSearch =
+      !search ||
+      `${c.name} ${c.id} ${c.setCode} ${c.number} ${c.rarity}`.toLowerCase().includes(search)
+    if (!matchesSearch) return false
+
+    // cor (qualquer uma)
+    const okColor =
+      selectedColors.value.length === 0 ||
+      (Array.isArray(c.colors) && c.colors.some((col) => selectedColors.value.includes(col)))
+
+    // set/expansão
+    const okSet = selectedSets.value.length === 0 || selectedSets.value.includes(c.setCode)
+
+    // custo
+    const okCost = !hasCost
+      ? true
+      : typeof c.cost === 'number' &&
+        (costMin.value == null || c.cost >= costMin.value) &&
+        (costMax.value == null || c.cost <= costMax.value)
+
+    return okColor && okSet && okCost
+  })
+})
+
+// helpers visuais
+const COLOR_BG: Record<string, string> = {
+  Red: 'bg-red-500',
+  Green: 'bg-green-500',
+  Blue: 'bg-blue-500',
+  Purple: 'bg-purple-500',
+  Black: 'bg-neutral-800',
+  Yellow: 'bg-yellow-400',
 }
 </script>
 
 <template>
-  <section class="space-y-4">
-    <!-- Barra de busca + resumo -->
-    <header class="flex flex-col md:flex-row gap-3 md:items-end">
-      <div class="flex-1">
-        <label class="text-xs text-gray-500">Search</label>
-        <input
-          v-model="q"
-          placeholder="name, id (OP01-001), set…"
-          class="w-full h-10 px-3 rounded-2xl border"
-        />
-      </div>
-      <div class="rounded-2xl border p-3 text-sm text-gray-700">
-        Total: <b>{{ coll.totalCards }}</b> • Unique: <b>{{ coll.uniqueCards }}</b>
+  <div class="min-h-screen bg-gray-50">
+    <header class="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-4">
+        <h1 class="text-lg font-semibold">Collection</h1>
+        <div class="ml-auto text-sm text-gray-600">
+          Total: <b>{{ coll.totalCards }}</b> • Unique: <b>{{ coll.uniqueCards }}</b>
+        </div>
       </div>
     </header>
 
-    <!-- Filtros: Set -->
-    <div class="space-y-2">
-      <div class="text-xs text-gray-500">Sets</div>
-      <div class="flex flex-wrap gap-2">
-        <Chip :active="selectedSets.length === 0" @click="selectedSets = []">All</Chip>
-        <Chip
-          v-for="s in catalog.sets"
-          :key="s.code"
-          :active="selectedSets.includes(s.code)"
-          :disabled="(setCounts.get(s.code) ?? 0) === 0"
-          :aria-label="`Filter by set ${s.code}`"
-          @click="toggleSet(s.code)"
-        >
-          <span class="font-medium">{{ s.code }}</span>
-          <span class="text-xs opacity-80">({{ setCounts.get(s.code) ?? 0 }})</span>
-        </Chip>
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
+      <!-- Search -->
+      <div>
+        <label class="text-xs text-gray-500">Search</label>
+        <input
+          v-model="q"
+          placeholder="Name, ID (OP01-001)…"
+          class="w-full h-10 px-3 rounded-2xl border bg-white"
+        />
       </div>
-    </div>
 
-    <!-- Filtros: Rarity -->
-    <div class="space-y-2">
-      <div class="text-xs text-gray-500">Rarity</div>
-      <div class="flex flex-wrap gap-2">
-        <Chip :active="selectedRarities.length === 0" @click="selectedRarities = []">All</Chip>
-        <Chip
-          v-for="r in ALL_RARITIES"
-          :key="r"
-          :active="selectedRarities.includes(r as Rarity)"
-          :disabled="(rarityCounts.get(r as any) ?? 0) === 0"
-          :aria-label="`Filter by rarity ${r}`"
-          @click="toggleRarity(r as Rarity)"
+      <!-- Botão de filtros -->
+      <div class="flex items-center gap-3">
+        <button
+          class="inline-flex items-center gap-2 text-sm px-3 h-9 rounded-2xl border bg-white hover:bg-gray-50"
+          @click="filtersOpen = !filtersOpen"
+          :aria-expanded="filtersOpen"
         >
-          <span class="font-medium">{{ r }}</span>
-          <span class="text-xs opacity-80">({{ rarityCounts.get(r as any) ?? 0 }})</span>
-        </Chip>
+          <!-- ícone filtro (inline SVG) -->
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-4 w-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              d="M3 5h18M6 12h12M10 19h4"
+            />
+          </svg>
+          Filters
+          <span
+            v-if="activeFilterCount"
+            class="ml-1 inline-flex items-center justify-center text-xs w-5 h-5 rounded-full bg-gray-900 text-white"
+          >
+            {{ activeFilterCount }}
+          </span>
+        </button>
+
+        <button
+          v-if="activeFilterCount"
+          class="text-sm text-gray-600 underline"
+          @click="resetFilters"
+        >
+          Clear
+        </button>
       </div>
-    </div>
 
-    <!-- Limpar filtros -->
-    <div class="flex gap-2">
-      <button
-        class="text-sm underline text-gray-600"
-        @click="clearFilters"
-        v-if="selectedSets.length || selectedRarities.length"
-      >
-        Clear filters
-      </button>
-    </div>
+      <!-- Painel de filtros -->
+      <div v-if="filtersOpen" class="rounded-2xl border bg-white p-3">
+        <div class="grid gap-4 md:grid-cols-3">
+          <!-- Colors -->
+          <div>
+            <div class="text-xs text-gray-500 mb-2">Colors</div>
+            <div class="flex flex-wrap gap-2">
+              <button
+                class="inline-flex items-center gap-2 h-9 px-3 rounded-2xl border text-sm"
+                :class="
+                  selectedColors.length === 0
+                    ? 'bg-gray-900 text-white border-transparent'
+                    : 'bg-white hover:bg-gray-50'
+                "
+                @click="selectedColors = []"
+              >
+                All
+              </button>
+              <button
+                v-for="c in ALL_COLORS"
+                :key="c"
+                class="inline-flex items-center gap-2 h-9 px-3 rounded-2xl border text-sm"
+                :class="
+                  selectedColors.includes(c)
+                    ? 'bg-gray-900 text-white border-transparent'
+                    : 'bg-white hover:bg-gray-50'
+                "
+                @click="toggleIn(selectedColors, c)"
+              >
+                <span class="h-2.5 w-2.5 rounded-full" :class="COLOR_BG[c]"></span>
+                {{ c }}
+              </button>
+            </div>
+          </div>
 
-    <!-- Grid -->
-    <div class="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-      <CardTile v-for="c in results" :key="c.id" :card="c" />
-    </div>
+          <!-- Cost -->
+          <div>
+            <div class="text-xs text-gray-500 mb-2">Cost</div>
+            <div class="flex items-center gap-2">
+              <input
+                type="number"
+                class="w-20 h-9 rounded-2xl border px-2"
+                :placeholder="String(costBounds.min)"
+                v-model.number="costMin"
+              />
+              <span class="text-xs text-gray-500">to</span>
+              <input
+                type="number"
+                class="w-20 h-9 rounded-2xl border px-2"
+                :placeholder="String(costBounds.max)"
+                v-model.number="costMax"
+              />
+              <button
+                class="ml-auto text-xs underline"
+                @click="((costMin = null), (costMax = null))"
+              >
+                reset
+              </button>
+            </div>
+          </div>
 
-    <!-- Empty state -->
-    <p v-if="results.length === 0" class="text-sm text-gray-500">No cards match your filters.</p>
-  </section>
+          <!-- Expansion / Set -->
+          <div>
+            <div class="text-xs text-gray-500 mb-2">Expansion</div>
+            <div class="flex flex-wrap gap-2 max-h-28 overflow-auto pr-1">
+              <button
+                class="inline-flex items-center gap-2 h-9 px-3 rounded-2xl border text-sm"
+                :class="
+                  selectedSets.length === 0
+                    ? 'bg-gray-900 text-white border-transparent'
+                    : 'bg-white hover:bg-gray-50'
+                "
+                @click="selectedSets = []"
+              >
+                All
+              </button>
+              <button
+                v-for="s in catalog.sets"
+                :key="s.code"
+                class="inline-flex items-center gap-2 h-9 px-3 rounded-2xl border text-sm"
+                :class="
+                  selectedSets.includes(s.code)
+                    ? 'bg-gray-900 text-white border-transparent'
+                    : 'bg-white hover:bg-gray-50'
+                "
+                @click="toggleIn(selectedSets, s.code)"
+              >
+                {{ s.code }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Loading -->
+      <p v-if="!catalog.loaded" class="text-sm text-gray-500">Loading card catalog…</p>
+
+      <!-- Grid -->
+      <div v-else class="grid grid-cols-[repeat(auto-fill,_minmax(180px,_1fr))] gap-3">
+        <CardTile v-for="c in results" :key="c.id" :card="c" />
+      </div>
+
+      <p v-if="catalog.loaded && results.length === 0" class="text-sm text-gray-500 mt-6">
+        No cards match your filters.
+      </p>
+    </main>
+  </div>
 </template>
